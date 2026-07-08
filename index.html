@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>호연고등학교 연수 서명 자동화 시스템</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Serif+KR:wght@600;900&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f8fafc;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .serif-title {
+            font-family: 'Noto Serif KR', serif;
+        }
+        /* 서명 캔버스 영역 붕괴 방지 및 최적화 */
+        #sig-canvas {
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+            touch-action: none;
+        }
+        /* 문서 테두리 설정 */
+        .doc-table th, .doc-table td {
+            border: 1px solid #1e293b;
+        }
+        /* 프린트 스타일 설정 */
+        @media print {
+            body {
+                background-color: #ffffff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-area {
+                width: 100% !important;
+                max-width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+                box-shadow: none !important;
+                background-color: #ffffff !important;
+            }
+            input, textarea, select {
+                border: none !important;
+                background: transparent !important;
+                padding: 0 !important;
+                resize: none !important;
+                outline: none !important;
+                box-shadow: none !important;
+            }
+            @page {
+                size: A4 portrait;
+                margin: 12mm 10mm 12mm 10mm;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col relative">
+
+    <!-- 로딩 스피너 (구글 시트와 데이터 동기화 중 표시) -->
+    <div id="sync-loading" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[200] flex flex-col items-center justify-center gap-4 transition-all duration-300">
+        <div class="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-3 border border-slate-100">
+            <div class="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+            <p class="text-sm font-bold text-slate-800">구글 실시간 데이터 동기화 중...</p>
+        </div>
+    </div>
+
+    <!-- 상단 글로벌 네비게이션 (인쇄 비대상) -->
+    <header class="no-print bg-slate-900 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-indigo-600 p-2.5 rounded-xl text-white shadow-md shadow-indigo-900/30">
+                    <i class="fa-solid fa-cloud-arrow-up text-xl animate-pulse"></i>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight">호연고등학교 연수 서명 자동화</h1>
+                    <p class="text-xs text-slate-400">교사 모바일 서명 수집 및 인쇄 관리 시스템 (구글 연동)</p>
+                </div>
+            </div>
+            <!-- 모드 전환 탭 -->
+            <div class="flex bg-slate-800 p-1.5 rounded-xl border border-slate-700/50">
+                <button onclick="switchTab('teacher')" id="tab-teacher" class="px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow">
+                    <i class="fa-solid fa-mobile-screen-button mr-2"></i>선생님 서명 페이지
+                </button>
+                <button onclick="switchTab('admin')" id="tab-admin" class="px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 text-slate-400 hover:text-white">
+                    <i class="fa-solid fa-user-gear mr-2"></i>연구부 관리자 화면
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 py-6">
+
+        <!-- ==================== [탭 1] 교직원 모바일 서명 화면 ==================== -->
+        <section id="view-teacher" class="no-print max-w-lg mx-auto bg-white rounded-3xl shadow-xl border border-slate-200/60 p-6 md:p-8 mt-4">
+            <div class="text-center mb-6">
+                <span class="inline-flex items-center gap-1.5 bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-full tracking-wide">
+                    <span class="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-ping"></span>
+                    교직원 전용 서명 패드
+                </span>
+                <h2 class="text-2xl font-black text-slate-800 mt-3">서명 등록</h2>
+                <p id="teacher-today-info" class="text-sm text-slate-500 mt-1.5">진행되는 행사의 서명부에 서명을 남겨주세요.</p>
+            </div>
+
+            <div class="space-y-6">
+                <!-- 교사 성명 선택 -->
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">
+                        <i class="fa-solid fa-circle-user text-indigo-500 mr-1.5"></i> 본인 성명을 골라주세요
+                    </label>
+                    <select id="select-teacher" class="w-full bg-slate-50 border border-slate-300 text-slate-800 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 p-4 text-base font-semibold transition duration-200 shadow-sm cursor-pointer">
+                        <!-- JS로 교사 명단 렌더링 -->
+                    </select>
+                </div>
+
+                <!-- 서명 캔버스 영역 (큼직한 드로잉 패드 높이 및 가이드 적용) -->
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">
+                        <i class="fa-solid fa-pen-nib text-indigo-500 mr-1.5"></i> 아래 영역에 서명해주세요
+                    </label>
+                    <div class="relative w-full h-64 bg-slate-50 border-2 border-dashed border-indigo-300 hover:border-indigo-500 rounded-2xl overflow-hidden transition-colors shadow-inner flex items-center justify-center">
+                        <canvas id="sig-canvas" class="absolute inset-0 w-full h-full cursor-crosshair touch-none z-10"></canvas>
+                        <!-- 드로잉 전 가이드 플레이스홀더 -->
+                        <div id="canvas-placeholder" class="text-slate-300 select-none pointer-events-none flex flex-col items-center gap-2 z-0">
+                            <i class="fa-solid fa-file-pen text-4xl text-indigo-200 animate-bounce"></i>
+                            <span class="text-xs font-bold text-slate-400">여기에 크게 사인을 그려주세요</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 제어 버튼 -->
+                <div class="grid grid-cols-3 gap-3">
+                    <button type="button" onclick="clearSignature()" class="col-span-1 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-bold py-4 px-4 rounded-xl transition duration-200 flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-eraser"></i> 지우기
+                    </button>
+                    <button type="button" onclick="submitSignature()" class="col-span-2 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white font-black py-4 px-4 rounded-xl shadow-lg shadow-indigo-200 transition duration-200 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-check"></i> 서명 제출하기
+                    </button>
+                </div>
+            </div>
+
+            <!-- 하단 안내 문구 -->
+            <div class="mt-8 pt-6 border-t border-slate-100 text-center">
+                <p class="text-xs text-slate-400 leading-relaxed">
+                    본 시스템은 호연고등학교 서명 수집 시스템입니다.<br>제출 시 구글 클라우드를 거쳐 교무실 관리자 PC로 즉시 실시간 전송됩니다.
+                </p>
+            </div>
+        </section>
+
+
+        <!-- ==================== [탭 2] 연구부 관리자 화면 & 인쇄 영역 ==================== -->
+        <section id="view-admin" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            
+            <!-- (좌측) 제어 패널 (인쇄 비대상) -->
+            <div class="no-print lg:col-span-4 space-y-6">
+                <!-- 제어 1: 연수 상세 설정 -->
+                <div class="bg-white rounded-3xl shadow-md border border-slate-200/60 p-5 space-y-4">
+                    <h3 class="text-lg font-bold text-slate-800 border-b border-slate-100 pb-3">
+                        <i class="fa-solid fa-gear text-indigo-600 mr-2"></i>서명부 정보 설정
+                    </h3>
+                    <div class="space-y-3.5">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">서명부 타이틀</label>
+                            <input type="text" id="input-title" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition" value="2026학년도 연수 서명부">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">날짜</label>
+                            <input type="text" id="input-date" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition" value="2026. 03. 23.(월)">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">주제/내용 목록 (한 줄에 하나씩)</label>
+                            <textarea id="input-topics" rows="6" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition">1. 학교 안전계획(학교폭력예방, 학교안전관리계획, 도박예방교육, 생명존중교육)&#10;2. 청렴, 부패방지&#10;3. 전국연합학력평가 감독 연수&#10;4. 선행학습 유발 행위 근절 연수&#10;5. 스마트폰 인터넷 과의존 과몰입 예방 교육자료&#10;6. 2026학년도 상반기 보안교육</textarea>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">주관부서 (줄바꿈 가능)</label>
+                            <textarea id="input-host" rows="4" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-sm font-semibold text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition resize-none">교감선생님&#10;학생안전부&#10;교육연구부&#10;교육정보부&#10;행정과장님</textarea>
+                        </div>
+                        
+                        <!-- 구글 클라우드 동기화 버튼 -->
+                        <button onclick="saveAdminSettingsToCloud()" class="w-full mt-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-100">
+                            <i class="fa-solid fa-cloud-arrow-up"></i> 수정 내용 구글 클라우드 저장
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 제어 2: 교직원 명단 일괄 편집 (직위/이름 이중 분할형) -->
+                <div class="bg-white rounded-3xl shadow-md border border-slate-200/60 p-5 space-y-4">
+                    <div class="flex justify-between items-center border-b border-slate-100 pb-3">
+                        <h3 class="text-lg font-bold text-slate-800">
+                            <i class="fa-solid fa-users text-indigo-600 mr-2"></i>교직원 명단 편집
+                        </h3>
+                        <button onclick="confirmResetRoster()" class="text-xs text-indigo-600 hover:text-indigo-800 font-bold transition">
+                            <i class="fa-solid fa-rotate-left mr-1"></i>기본 복원
+                        </button>
+                    </div>
+                    <div class="bg-indigo-50/50 rounded-xl p-3 border border-indigo-100 text-xs text-indigo-900 leading-relaxed">
+                        <i class="fa-solid fa-circle-info mr-1"></i> <strong>엑셀 1:1 완벽 호환!</strong><br>
+                        엑셀에서 <strong>[직위]</strong> 열을 복사해 왼쪽에, <strong>[이름]</strong> 열을 복사해 오른쪽에 그대로 붙여넣으면 됩니다. 수정 완료 후 반드시 상단의 **[구글 클라우드 저장]** 버튼을 눌러주셔야 반영됩니다.
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 mb-1">직위 목록 (줄바꿈)</label>
+                            <textarea id="input-positions" rows="8" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs font-mono text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition" oninput="updateRosterFromSeparatedTextareas()" placeholder="교장&#10;교감&#10;교사"></textarea>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 mb-1">성명 목록 (줄바꿈)</label>
+                            <textarea id="input-names" rows="8" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2.5 text-xs font-mono text-slate-800 focus:border-indigo-500 focus:bg-white outline-none transition" oninput="updateRosterFromSeparatedTextareas()" placeholder="김민규&#10;전소영&#10;김경진"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 제어 3: 인쇄 및 데이터 삭제 관리 -->
+                <div class="bg-white rounded-3xl shadow-md border border-slate-200/60 p-5 space-y-3">
+                    <button onclick="window.print()" class="w-full bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-indigo-100 transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-print"></i> 서명부 인쇄 / PDF 저장
+                    </button>
+                    <button onclick="confirmClearSignatures()" class="w-full bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 font-bold py-3 px-4 rounded-xl border border-rose-200 transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-trash-can"></i> 구글 시트 내 모든 서명 비우기
+                    </button>
+                </div>
+            </div>
+
+            <!-- (우측) 실시간 A4 미리보기 화면 (인쇄 대상) -->
+            <div class="lg:col-span-8 flex justify-center">
+                <div id="print-document" class="print-area w-[800px] bg-white border border-slate-300 shadow-2xl p-[40px] text-black select-none">
+                    
+                    <!-- 서명부 타이틀 -->
+                    <div class="text-center relative mb-1.5">
+                        <h2 class="text-[26px] font-black tracking-[4px] serif-title flex justify-center items-center gap-2">
+                            <span>「</span> <span id="doc-title">2026학년도 연수 서명부</span> <span>」</span>
+                        </h2>
+                        <span class="absolute right-0 bottom-[-14px] text-[14px] tracking-[6px] font-bold">호 연 고 등 학 교</span>
+                    </div>
+
+                    <!-- 1. 상단 연수 정보 테이블 -->
+                    <table class="doc-table w-full border-collapse text-xs mb-5 mt-5">
+                        <thead>
+                            <tr class="bg-[#FFF2E6]">
+                                <th class="w-[60%] py-2 font-bold text-center border">내 용</th>
+                                <th class="w-[20%] py-2 font-bold text-center border">주관부서</th>
+                                <th class="w-[20%] py-2 font-bold text-center border">날 짜</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td class="p-3 text-[11.5px] leading-relaxed align-top border" id="preview-topics"></td>
+                                <td class="p-3 text-[12px] leading-relaxed text-center align-middle border" id="preview-host"></td>
+                                <td class="p-3 text-[12.5px] font-medium text-center align-middle border" id="preview-date"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <!-- 2. 교직원 서명 테이블 (좌/우 2단 병렬 분할) -->
+                    <div class="grid grid-cols-2 gap-0">
+                        <!-- 좌측 21칸 (1~21번) -->
+                        <table class="doc-table w-full border-collapse text-[11.5px] border-r-0">
+                            <thead>
+                                <tr class="bg-[#FFF2E6]">
+                                    <th class="w-[12%] py-1.5 font-bold text-center border-b">연번</th>
+                                    <th class="w-[20%] py-1.5 font-bold text-center border-b">직위</th>
+                                    <th class="w-[28%] py-1.5 font-bold text-center border-b">이름</th>
+                                    <th class="w-[40%] py-1.5 font-bold text-center border-b">서 명</th>
+                                </tr>
+                            </thead>
+                            <tbody id="signature-table-left"></tbody>
+                        </table>
+
+                        <!-- 우측 21칸 (22~42번) -->
+                        <table class="doc-table w-full border-collapse text-[11.5px]">
+                            <thead>
+                                <tr class="bg-[#FFF2E6]">
+                                    <th class="w-[12%] py-1.5 font-bold text-center border-b">연번</th>
+                                    <th class="w-[20%] py-1.5 font-bold text-center border-b">직위</th>
+                                    <th class="w-[28%] py-1.5 font-bold text-center border-b">이름</th>
+                                    <th class="w-[40%] py-1.5 font-bold text-center border-b">서 명</th>
+                                </tr>
+                            </thead>
+                            <tbody id="signature-table-right"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- 하단 푸터 (인쇄 비대상) -->
+    <footer class="no-print text-center text-xs text-slate-400 py-8 mt-12 border-t border-slate-200">
+        <p>© 2026 호연고등학교 교육연구부 All Rights Reserved.</p>
+    </footer>
+
+    <!-- ==================== 맞춤형 알림/모달 창 레이아웃 ==================== -->
+    <div id="custom-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 transform transition scale-95 duration-200">
+            <div id="modal-icon" class="w-12 h-12 rounded-full mx-auto flex items-center justify-center text-xl mb-4"></div>
+            <h4 id="modal-title" class="text-center font-bold text-slate-800 text-lg mb-1"></h4>
+            <p id="modal-message" class="text-center text-slate-500 text-sm mb-6 leading-relaxed"></p>
+            <div class="flex gap-2.5" id="modal-buttons"></div>
+        </div>
+    </div>
+
+    <!-- ==================== 비즈니스 핵심 로직 JS ==================== -->
+    <script>
+        // ==================== [구글 스프레드시트 연동 설정] ====================
+        // 가이드의 3단계에서 복사한 구글 앱스 스크립트 웹앱 주소(exec로 끝남)를 아래 따옴표 안에 넣어주세요!
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbwekrzU_mJ8w9zACxb4EcfyEPo4SAVVfWFJz9RpJsBxGMaefc6AtsoQOICeayoJKPYsoA/exec";
+        // =====================================================================
+
+        // 기본 42명 교직원 백업 명단 (구글 시트 연동 실패 시의 로컬 백업용)
+        const defaultRoster = [
+            { id: 1, pos: "교장", name: "김민규" }, { id: 2, pos: "교감", name: "전소영" },
+            { id: 3, pos: "교사", name: "김경진" }, { id: 4, pos: "교사", name: "김기현" },
+            { id: 5, pos: "교사", name: "김도훈" }, { id: 6, pos: "교사", name: "김동현" },
+            { id: 7, pos: "교사", name: "김민석" }, { id: 8, pos: "교사", name: "김선우" },
+            { id: 9, pos: "교사", name: "김성현" }, { id: 10, pos: "교사", name: "김수진" },
+            { id: 11, pos: "교사", name: "김아름" }, { id: 12, pos: "교사", name: "김은지" },
+            { id: 13, pos: "교사", name: "김재우" }, { id: 14, pos: "교사", name: "김지민" },
+            { id: 15, pos: "교사", name: "김현우" }, { id: 16, pos: "교사", name: "박민수" },
+            { id: 17, pos: "교사", name: "박서연" }, { id: 18, pos: "교사", name: "박성진" },
+            { id: 19, pos: "교사", name: "박수현" }, { id: 20, pos: "교사", name: "박재현" },
+            { id: 21, pos: "교사", name: "박지현" }, { id: 22, pos: "교사", name: "장성찬" },
+            { id: 23, pos: "교사", name: "전하은" }, { id: 24, pos: "교사", name: "최여진" },
+            { id: 25, pos: "교사", name: "최현숙" }, { id: 26, pos: "교사", name: "최형열" },
+            { id: 27, pos: "부장교사", name: "한민수" }, { id: 28, pos: "부장교사", name: "황동하" },
+            { id: 29, pos: "교사", name: "서유경" }, { id: 30, pos: "교사", name: "성민지" },
+            { id: 31, pos: "교사", name: "신재원" }, { id: 32, pos: "교사", name: "안상현" },
+            { id: 33, pos: "교사", name: "양지호" }, { id: 34, pos: "교사", name: "오지민" },
+            { id: 35, pos: "교사", name: "유재혁" }, { id: 36, pos: "교사", name: "윤도현" },
+            { id: 37, pos: "교사", name: "윤서하" }, { id: 38, pos: "교사", name: "윤지민" },
+            { id: 39, pos: "교사", name: "이동하" }, { id: 40, pos: "교사", name: "이서연" },
+            { id: 41, pos: "교사", name: "이성민" }, { id: 42, pos: "교사", name: "이수진" }
+        ];
+
+        let teachers = [...defaultRoster];
+        let signatures = {};
+
+        // 로딩 바 제어 함수
+        function showLoading(show) {
+            const loader = document.getElementById('sync-loading');
+            if (show) {
+                loader.classList.remove('hidden');
+                loader.classList.add('flex');
+            } else {
+                loader.classList.add('hidden');
+                loader.classList.remove('flex');
+            }
+        }
+
+        // 초기 앱 시작
+        window.addEventListener('DOMContentLoaded', () => {
+            initSignaturePad();
+            loadCloudOrLocalData();
+        });
+
+        // 1. 구글 클라우드 또는 로컬 데이터 종합 불러오기
+        async function loadCloudOrLocalData() {
+            showLoading(true);
+
+            // 구글 웹앱 주소가 유효하게 적혀있는 경우
+            if (GAS_URL && GAS_URL.indexOf("exec") !== -1) {
+                try {
+                    const response = await fetch(`${GAS_URL}?action=getData`);
+                    const cloudData = await response.json();
+
+                    // 설정 복원
+                    if (cloudData.title) document.getElementById('input-title').value = cloudData.title;
+                    if (cloudData.date) document.getElementById('input-date').value = cloudData.date;
+                    if (cloudData.topics) document.getElementById('input-topics').value = cloudData.topics;
+                    if (cloudData.host) document.getElementById('input-host').value = cloudData.host;
+
+                    // 교사 명단 복원
+                    if (cloudData.teachers) {
+                        teachers = JSON.parse(cloudData.teachers);
+                    } else {
+                        teachers = [...defaultRoster];
+                    }
+
+                    // 서명 데이터 복원 (sig_ 로 시작하는 키값들)
+                    signatures = {};
+                    Object.keys(cloudData).forEach(key => {
+                        if (key.startsWith("sig_")) {
+                            const tId = key.replace("sig_", "");
+                            signatures[tId] = cloudData[key];
+                        }
+                    });
+
+                } catch (error) {
+                    console.error("구글 클라우드 연동 실패, 로컬 백업을 실행합니다.", error);
+                    loadLocalFallback();
+                }
+            } else {
+                // 구글 주소가 세팅 안된 테스트 유저를 위한 로컬 스토리지 Fallback 작동
+                loadLocalFallback();
+            }
+
+            // UI 렌더링
+            renderTeacherDropdown();
+            renderTables();
+            updateDocumentPreviewUI();
+            syncRosterTextareas();
+            showLoading(false);
+        }
+
+        // 로컬 오프라인 데이터 복구 처리 (구글 연동 안되었을 때 백업)
+        function loadLocalFallback() {
+            const localTeachers = localStorage.getItem('hoyon_teachers_v2');
+            if (localTeachers) teachers = JSON.parse(localTeachers);
+            const localSigs = localStorage.getItem('hoyon_signatures_v2');
+            if (localSigs) signatures = JSON.parse(localSigs);
+
+            const inputTitle = localStorage.getItem('hoyon_title');
+            const inputDate = localStorage.getItem('hoyon_date');
+            const inputHost = localStorage.getItem('hoyon_host');
+            const inputTopics = localStorage.getItem('hoyon_topics');
+
+            if (inputTitle) document.getElementById('input-title').value = inputTitle;
+            if (inputDate) document.getElementById('input-date').value = inputDate;
+            if (inputHost) document.getElementById('input-host').value = inputHost;
+            if (inputTopics) document.getElementById('input-topics').value = inputTopics;
+        }
+
+        // 탭 토글링 시스템
+        function switchTab(tab) {
+            const btnTeacher = document.getElementById('tab-teacher');
+            const btnAdmin = document.getElementById('tab-admin');
+            const viewTeacher = document.getElementById('view-teacher');
+            const viewAdmin = document.getElementById('view-admin');
+
+            if (tab === 'teacher') {
+                btnTeacher.className = "px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow";
+                btnAdmin.className = "px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 text-slate-400 hover:text-white";
+                viewTeacher.classList.remove('hidden');
+                viewAdmin.classList.add('hidden');
+                setTimeout(resizeCanvas, 50);
+            } else {
+                btnAdmin.className = "px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow";
+                btnTeacher.className = "px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 text-slate-400 hover:text-white";
+                viewTeacher.classList.add('hidden');
+                viewAdmin.classList.remove('hidden');
+                loadCloudOrLocalData(); // 관리자 화면에 진입하면 최신 데이터 동기화
+            }
+        }
+
+        // 연수 정보 수정사항 실시간 양식 연동 (로컬 캐시)
+        function updateDocumentPreviewUI() {
+            const titleStr = document.getElementById('input-title').value;
+            const dateStr = document.getElementById('input-date').value;
+            const hostStr = document.getElementById('input-host').value;
+            const topicsStr = document.getElementById('input-topics').value;
+
+            localStorage.setItem('hoyon_title', titleStr);
+            localStorage.setItem('hoyon_date', dateStr);
+            localStorage.setItem('hoyon_host', hostStr);
+            localStorage.setItem('hoyon_topics', topicsStr);
+
+            document.getElementById('doc-title').textContent = titleStr;
+            document.getElementById('teacher-today-info').innerHTML = `오늘 <b>[${dateStr}]</b> 행사에 서명을 남겨주세요.`;
+            document.getElementById('preview-date').innerHTML = dateStr.replace(/\n/g, '<br>');
+            document.getElementById('preview-host').innerHTML = hostStr.replace(/\n/g, '<br>');
+
+            const topicsArr = topicsStr.split('\n').filter(t => t.trim() !== "");
+            let topicsHTML = "";
+            topicsArr.forEach((topic) => {
+                topicsHTML += `<div class="mb-1 last:mb-0">${topic}</div>`;
+            });
+            document.getElementById('preview-topics').innerHTML = topicsHTML;
+        }
+
+        // 구글 시트 클라우드 저장 전송 (관리자 정보 일괄 싱크)
+        async function saveAdminSettingsToCloud() {
+            showLoading(true);
+            updateDocumentPreviewUI();
+
+            const payload = {
+                action: "saveSettings",
+                title: document.getElementById('input-title').value,
+                date: document.getElementById('input-date').value,
+                topics: document.getElementById('input-topics').value,
+                host: document.getElementById('input-host').value,
+                teachers: teachers
+            };
+
+            // 로컬 임시 저장
+            localStorage.setItem('hoyon_teachers_v2', JSON.stringify(teachers));
+
+            if (GAS_URL && GAS_URL.indexOf("exec") !== -1) {
+                try {
+                    await fetch(GAS_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // CORS 정책 해결을 위한 모드 설정
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(payload)
+                    });
+                    showCustomModal("클라우드 저장 성공", "입력한 연수 주제와 교직원 명단이 구글 시트에 안전하게 저장되었습니다.<br>이제 다른 선생님 폰에서도 바로 연동됩니다.", "success");
+                } catch (error) {
+                    console.error(error);
+                    showCustomModal("서버 전송 에러", "구글 시트 연동 중 실패했습니다. 오프라인(브라우저)에는 일단 저장되었습니다.", "warning");
+                }
+            } else {
+                showCustomModal("알림", "구글 웹앱 주소가 설정되지 않아 내 브라우저(로컬)에만 임시 저장되었습니다.", "info");
+            }
+            showLoading(false);
+        }
+
+        // 명단 텍스트영역 정렬 동기화
+        function syncRosterTextareas() {
+            const posTextarea = document.getElementById('input-positions');
+            const nameTextarea = document.getElementById('input-names');
+            let posContent = "";
+            let nameContent = "";
+            teachers.forEach(t => {
+                posContent += `${t.pos}\n`;
+                nameContent += `${t.name}\n`;
+            });
+            posTextarea.value = posContent.trim();
+            nameTextarea.value = nameContent.trim();
+        }
+
+        // 분리된 직위/이름 텍스트 파싱 처리
+        function updateRosterFromSeparatedTextareas() {
+            const posText = document.getElementById('input-positions').value;
+            const nameText = document.getElementById('input-names').value;
+            
+            const posLines = posText.split('\n').map(s => s.trim()).filter(s => s !== "");
+            const nameLines = nameText.split('\n').map(s => s.trim()).filter(s => s !== "");
+            
+            const newTeachers = [];
+            const maxLength = Math.max(posLines.length, nameLines.length);
+
+            for (let i = 0; i < maxLength; i++) {
+                newTeachers.push({
+                    id: i + 1,
+                    pos: posLines[i] || "교사",
+                    name: nameLines[i] || ""
+                });
+            }
+
+            if (newTeachers.length > 0) {
+                teachers = newTeachers;
+                renderTeacherDropdown();
+                renderTables();
+            }
+        }
+
+        function confirmResetRoster() {
+            showCustomModal(
+                "명단 초기화",
+                "교직원 명단을 처음 설정된 42명 표준 데이터로 되돌리시겠습니까?",
+                "question",
+                true,
+                () => {
+                    teachers = [...defaultRoster];
+                    syncRosterTextareas();
+                    renderTeacherDropdown();
+                    renderTables();
+                    showCustomModal("초기화 완료", "명단을 원본으로 설정했습니다. 상단의 **클라우드 저장** 버튼을 눌러야 최종 구글 시트에 업데이트됩니다.", "success");
+                }
+            );
+        }
+
+        // 교사 선택 리스트 렌더링
+        function renderTeacherDropdown() {
+            const selectEl = document.getElementById('select-teacher');
+            selectEl.innerHTML = '<option value="" disabled selected>성명을 선택해 주세요</option>';
+            
+            const sortedTeachers = [...teachers].sort((a, b) => a.name.localeCompare(b.name));
+            
+            sortedTeachers.forEach(t => {
+                if (t.name) {
+                    const isSigned = signatures[t.id] ? " (서명 완료 ✓)" : "";
+                    const option = document.createElement('option');
+                    option.value = t.id;
+                    option.textContent = `${t.name} [${t.pos}]${isSigned}`;
+                    selectEl.appendChild(option);
+                }
+            });
+        }
+
+        // 표 양식 렌더링
+        function renderTables() {
+            const tableLeft = document.getElementById('signature-table-left');
+            const tableRight = document.getElementById('signature-table-right');
+
+            tableLeft.innerHTML = "";
+            tableRight.innerHTML = "";
+
+            const totalSlots = Math.max(42, Math.ceil(teachers.length / 2) * 2);
+            const midPoint = totalSlots / 2;
+
+            for (let i = 1; i <= totalSlots; i++) {
+                const teacher = teachers.find(t => t.id === i);
+                const hasData = !!teacher;
+
+                const posVal = hasData ? teacher.pos : "";
+                const nameVal = hasData ? teacher.name : "";
+                
+                let signatureHTML = "";
+                if (hasData && signatures[teacher.id]) {
+                    signatureHTML = `<img src="${signatures[teacher.id]}" class="max-h-[25px] mx-auto object-contain" alt="서명">`;
+                }
+
+                const rowHTML = `
+                    <tr class="h-[34px] hover:bg-slate-50 transition-colors">
+                        <td class="text-center font-bold border text-[11px] py-0">${i}</td>
+                        <td class="text-center border text-[11px] py-0">${posVal}</td>
+                        <td class="text-center font-bold border text-[12px] py-0">${nameVal}</td>
+                        <td class="text-center border py-0 align-middle h-[34px] overflow-hidden">${signatureHTML}</td>
+                    </tr>
+                `;
+
+                if (i <= midPoint) {
+                    tableLeft.innerHTML += rowHTML;
+                } else {
+                    tableRight.innerHTML += rowHTML;
+                }
+            }
+        }
+
+        // ==================== [Canvas 드로잉 제어 파트] ====================
+        let canvas, ctx;
+        let drawing = false;
+
+        function initSignaturePad() {
+            canvas = document.getElementById('sig-canvas');
+            ctx = canvas.getContext('2d');
+
+            ctx.strokeStyle = "#111827";
+            ctx.lineWidth = 3.5;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            // 마우스 이벤트
+            canvas.addEventListener("mousedown", startDrawing);
+            canvas.addEventListener("mouseup", stopDrawing);
+            canvas.addEventListener("mousemove", drawMouse);
+
+            // 터치 이벤트
+            canvas.addEventListener("touchstart", startDrawingTouch);
+            canvas.addEventListener("touchend", stopDrawing);
+            canvas.addEventListener("touchmove", drawTouch);
+
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+        }
+
+        // 캔버스 반응형 붕괴 완전 해결
+        function resizeCanvas() {
+            if (!canvas || !ctx) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            if (rect.width === 0 || rect.height === 0) return;
+
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0);
+
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+            
+            ctx.strokeStyle = "#111827";
+            ctx.lineWidth = 3.5;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+
+            ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width / dpr, tempCanvas.height / dpr, 0, 0, rect.width, rect.height);
+        }
+
+        function startDrawing(e) {
+            hidePlaceholder();
+            drawing = true;
+            ctx.beginPath();
+            const pos = getMousePos(e);
+            ctx.moveTo(pos.x, pos.y);
+        }
+
+        function stopDrawing() {
+            drawing = false;
+            ctx.closePath();
+        }
+
+        function drawMouse(e) {
+            if (!drawing) return;
+            const pos = getMousePos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+        }
+
+        function startDrawingTouch(e) {
+            hidePlaceholder();
+            drawing = true;
+            ctx.beginPath();
+            const pos = getTouchPos(e);
+            ctx.moveTo(pos.x, pos.y);
+            e.preventDefault();
+        }
+
+        function drawTouch(e) {
+            if (!drawing) return;
+            const pos = getTouchPos(e);
+            ctx.lineTo(pos.x, pos.y);
+            ctx.stroke();
+            e.preventDefault();
+        }
+
+        function getMousePos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.clientX - rect.left,
+                y: e.clientY - rect.top
+            };
+        }
+
+        function getTouchPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: e.touches[0].clientX - rect.left,
+                y: e.touches[0].clientY - rect.top
+            };
+        }
+
+        function clearSignature() {
+            ctx.clearRect(0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
+            showPlaceholder();
+        }
+
+        function hidePlaceholder() {
+            const ph = document.getElementById("canvas-placeholder");
+            if (ph) ph.classList.add("hidden");
+        }
+
+        function showPlaceholder() {
+            const ph = document.getElementById("canvas-placeholder");
+            if (ph) ph.classList.remove("hidden");
+        }
+
+        // 서명 등록 제출 (스마트폰 ➡️ 구글 클라우드 시트 실시간 전송)
+        async function submitSignature() {
+            const selectEl = document.getElementById('select-teacher');
+            const teacherId = selectEl.value;
+
+            if (!teacherId) {
+                showCustomModal("인증 에러", "선생님의 성명을 목록에서 먼저 선택해 주세요.", "warning");
+                return;
+            }
+
+            if (isCanvasBlank(canvas)) {
+                showCustomModal("서명 미입력", "서명 란에 터치를 이용해 사인을 그려주세요.", "warning");
+                return;
+            }
+
+            showLoading(true);
+            const signatureData = canvas.toDataURL("image/png");
+            
+            // 로컬 우선 선반영
+            signatures[teacherId] = signatureData;
+            localStorage.setItem('hoyon_signatures_v2', JSON.stringify(signatures));
+
+            const payload = {
+                action: "saveSignature",
+                teacherId: teacherId,
+                signature: signatureData
+            };
+
+            const teacherObj = teachers.find(t => t.id == teacherId);
+
+            if (GAS_URL && GAS_URL.indexOf("exec") !== -1) {
+                try {
+                    await fetch(GAS_URL, {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(payload)
+                    });
+                    showCustomModal("서명 전송 완료", `<b>${teacherObj.name}</b> 선생님의 서명이 구글 클라우드에 성공적으로 등록되었습니다!`, "success");
+                } catch (e) {
+                    console.error(e);
+                    showCustomModal("오프라인 저장 완료", `인터넷 끊김 현상으로 브라우저 임시보관함에 저장되었습니다. (나중에 자동 전송됩니다.)`, "warning");
+                }
+            } else {
+                showCustomModal("서명 완료", `<b>${teacherObj.name}</b> 선생님의 서명이 오프라인으로 보관되었습니다. (구글 연동을 하시면 실시간 수집 가능)`, "info");
+            }
+
+            clearSignature();
+            renderTeacherDropdown();
+            renderTables();
+            showLoading(false);
+        }
+
+        function isCanvasBlank(canvas) {
+            const blank = document.createElement('canvas');
+            blank.width = canvas.width;
+            blank.height = canvas.height;
+            return canvas.toDataURL() === blank.toDataURL();
+        }
+
+        // 전체 서명 리셋
+        async function confirmClearSignatures() {
+            showCustomModal(
+                "전체 삭제 주의",
+                "수집된 전체 교직원의 서명 데이터를 완전히 지우시겠습니까?<br><span class='text-rose-600 font-bold'>구글 시트에 수집된 모든 서명이 영구 삭제됩니다.</span>",
+                "danger",
+                true,
+                async () => {
+                    showLoading(true);
+                    signatures = {};
+                    localStorage.removeItem('hoyon_signatures_v2');
+
+                    if (GAS_URL && GAS_URL.indexOf("exec") !== -1) {
+                        try {
+                            await fetch(GAS_URL, {
+                                method: 'POST',
+                                mode: 'no-cors',
+                                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                                body: JSON.stringify({ action: "clearSignatures" })
+                            });
+                            showCustomModal("삭제 완료", "구글 시트 및 로컬의 모든 서명 데이터가 폐기되었습니다.", "success");
+                        } catch (e) {
+                            showCustomModal("오류 발생", "구글 시트 클라우드 초기화에 실패했습니다.", "danger");
+                        }
+                    } else {
+                        showCustomModal("삭제 완료", "로컬 서명 데이터가 깨끗이 비워졌습니다.", "success");
+                    }
+
+                    clearSignature();
+                    renderTeacherDropdown();
+                    renderTables();
+                    showLoading(false);
+                }
+            );
+        }
+
+        // ==================== [자체 커스텀 모달 레이어 로직] ====================
+        function showCustomModal(title, message, type = "info", isConfirm = false, onConfirm = null) {
+            const modal = document.getElementById('custom-modal');
+            const mIcon = document.getElementById('modal-icon');
+            const mTitle = document.getElementById('modal-title');
+            const mMsg = document.getElementById('modal-message');
+            const mBtns = document.getElementById('modal-buttons');
+
+            mTitle.innerHTML = title;
+            mMsg.innerHTML = message;
+
+            if (type === "success") {
+                mIcon.className = "w-12 h-12 rounded-full mx-auto flex items-center justify-center text-xl mb-4 bg-emerald-100 text-emerald-600";
+                mIcon.innerHTML = '<i class="fa-solid fa-circle-check"></i>';
+            } else if (type === "warning") {
+                mIcon.className = "w-12 h-12 rounded-full mx-auto flex items-center justify-center text-xl mb-4 bg-amber-100 text-amber-600";
+                mIcon.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>';
+            } else if (type === "danger") {
+                mIcon.className = "w-12 h-12 rounded-full mx-auto flex items-center justify-center text-xl mb-4 bg-rose-100 text-rose-600";
+                mIcon.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i>';
+            } else {
+                mIcon.className = "w-12 h-12 rounded-full mx-auto flex items-center justify-center text-xl mb-4 bg-blue-100 text-blue-600";
+                mIcon.innerHTML = '<i class="fa-solid fa-circle-info"></i>';
+            }
+
+            mBtns.innerHTML = "";
+
+            if (isConfirm) {
+                const cancelBtn = document.createElement("button");
+                cancelBtn.className = "flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 rounded-xl font-bold transition text-sm";
+                cancelBtn.textContent = "취소";
+                cancelBtn.onclick = () => { modal.classList.add('hidden'); };
+
+                const confirmBtn = document.createElement("button");
+                confirmBtn.className = `flex-1 py-3 rounded-xl font-bold transition text-sm text-white ${type === 'danger' ? 'bg-rose-600 hover:bg-rose-700' : 'bg-indigo-600 hover:bg-indigo-700'}`;
+                confirmBtn.textContent = "확인";
+                confirmBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                    if (onConfirm) onConfirm();
+                };
+
+                mBtns.appendChild(cancelBtn);
+                mBtns.appendChild(confirmBtn);
+            } else {
+                const closeBtn = document.createElement("button");
+                closeBtn.className = "w-full bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold transition text-sm";
+                closeBtn.textContent = "확인";
+                closeBtn.onclick = () => { modal.classList.add('hidden'); };
+                mBtns.appendChild(closeBtn);
+            }
+
+            modal.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
